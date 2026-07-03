@@ -1,16 +1,15 @@
-# ITCH Market Data Engine
+# ITCH 5.0 Parser
 
-This project's goal is to create a C++20 library, exposed to Python through pybind11, that parses NASDAQ TotalView-ITCH 5.0 messages and reconstructs per-instrument order books for market microstructure analysis.
+A C++20 library that reads NASDAQ TotalView-ITCH 5.0 binary files, splits the stream into individual messages, decodes each into a struct, and dispatches it to a handler.
 
-## Current status
+## Parser
 
-### ITCH parser
+- Reads a binary ITCH 5.0 file sequentially in fixed-size chunks, carrying partial messages across chunk boundaries.
+- Handles endianness (big-endian wire format to host byte order).
+- Decodes each message by treating the raw bytes as a struct instead of decoding them field by field, then byte-swaps the fields.
+- Dispatches each decoded message to a handler functor. The included `Printer` handler prints every message; the parser is generic over the handler, so other consumers can be plugged in.
 
-- Read binary ITCH file sequentially.
-- Handle endianness (from big-endian to little-endian).
-- Minimizes overhead by reading directly from the buffer.
-
-### Supported ITCH 5.0 Messages
+### Supported ITCH 5.0 messages
 
 #### Stock related messages
 
@@ -32,50 +31,34 @@ This project's goal is to create a C++20 library, exposed to Python through pybi
 | `D` | `OrderDelete` | An order on the book was cancelled entirely and must be removed from the book. |
 | `U` | `OrderReplace` | An order on the book was cancelled and replaced with a new order. |
 
-## Architecture diagram
+### Configuration
+
+A JSON config points the engine at the ITCH file to read (`nasdaq_historical_file_path`). See `examples/simple-example.json`.
+
+## Pipeline
 
 ```mermaid
 flowchart TD
+    config_file["Configuration file<br/>• ITCH file path"]
+    nasdaq_itch_file["NASDAQ TotalView-ITCH 5.0 file<br/>• Read as a continuous event stream (level 3 market data)"]
 
-    config_file["Configuration file with instruments details (ID, symbol, order book depth)"]
-    
-    nasdaq_itch_file[NASDAQ TotalView-ITCH 5.0 historical file<br/>• Replayed as a continuous event stream, providing level 3 market data]
-
-    subgraph cpp_server[C++ library]
-
-        itch_parser["ITCH Parser<br/>• Decodes ITCH messages and emits normalized order events"]
-
-        order_book_manager[Order book manager<br/>• Applies events to maintain order book state<br/>• Manages order books for all instruments]
-        
-        order_book[Order book<br/>• Lists bids and asks for an instrument]
-
-        pybind11_interface[Pybind11 bindings<br/>• Exposes C++ API to Python<br/>• Zero-copy data transfer via NumPy arrays]
+    subgraph cpp[C++ library]
+        engine["Engine<br/>• Reads the ITCH file in 64 KB chunks<br/>• Splits the stream into messages using each message's length prefix"]
+        itch_parser["ITCH parser<br/>• Decodes each message into a struct<br/>• Converts endianness"]
+        handler["Handler (Printer)<br/>• Consumes each decoded message"]
     end
 
-    subgraph python_layer[Python Research layer]
-
-        update_buffers[Update buffers per instrument<br/>• Maintains separate buffer per instrument<br/>• Collects updates up to 1000 per instrument]
-
-        polars_processing[Polars processing<br/>• Processes each instrument independently<br/>• Triggers when instrument reaches 1000 updates<br/>• Extracts features and saves to Parquet]
-    end
-
-    parquet_files[Parquet files]
-    
-    pandas_analysis[Pandas analysis<br/>• Jupyter notebooks<br/>• Loads Parquet files for statistical analysis and visualizations]
-
-
-    config_file -->|Specifies instruments to observe| order_book_manager
-    order_book_manager --> order_book
-    nasdaq_itch_file --> itch_parser
-    itch_parser --> order_book_manager
-    order_book_manager --> pybind11_interface
-    pybind11_interface --> update_buffers
-    update_buffers --> polars_processing
-    polars_processing --> parquet_files
-    parquet_files --> pandas_analysis
+    config_file -->|ITCH file path| engine
+    nasdaq_itch_file --> engine
+    engine --> itch_parser
+    itch_parser --> handler
 ```
 
-## Stack used
+## Roadmap
+
+Planned: order book reconstruction, Python bindings, and a Python layer for analysis.
+
+## Stack
 
 - Build system: [CMake](https://cmake.org/), a cross-platform build system generator.
 - Package manager: [Conan](https://conan.io/), a C/C++ dependency manager widely used in production environments.
@@ -84,21 +67,19 @@ flowchart TD
 
 ### Requirements
 
-The project requires the following to run:
-
 - [CMake](https://cmake.org/): if not installed, refer to the [installation guide](https://cmake.org/download/).
-- [Conan](https://conan.io/): if not installed, refer to the [installtion guide](https://docs.conan.io/2/installation.html).
+- [Conan](https://conan.io/): if not installed, refer to the [installation guide](https://docs.conan.io/2/installation.html).
 
-Run the following command:
+Run the following command once:
 ```sh
 conan profile detect --force
 ```
 
 ### Dataset
 
-Download raw ITCH 5.0 data `01302020.NASDAQ_ITCH50.gz` from `https://emi.nasdaq.com/ITCH/Nasdaq%20ITCH/`.
+Small sample files are provided in the `examples/` folder and are what the engine runs on.
 
-Samples are available in `examples/` folder.
+Full historical days (e.g. `01302020.NASDAQ_ITCH50.gz`) can be downloaded from `https://emi.nasdaq.com/ITCH/Nasdaq%20ITCH/`, but a decompressed day is very large.
 
 The data format is defined by the document [Nasdaq TotalView-ITCH 5.0](https://www.nasdaqtrader.com/content/technicalsupport/specifications/dataproducts/NQTVITCHspecification.pdf).
 
@@ -106,8 +87,8 @@ The data format is defined by the document [Nasdaq TotalView-ITCH 5.0](https://w
 
 1. Clone the git repository.
 ```sh
-git clone git@github.com:sephorah/ITCH-market-data-engine.git
-cd ITCH-market-data-engine
+git clone git@github.com:sephorah/itch-5.0-parser.git
+cd itch-5.0-parser
 ```
 
 2. Install dependencies.
@@ -120,7 +101,13 @@ cd ITCH-market-data-engine
 ./bin/setup.sh build
 ```
 
-4. Run tests.
+### Run tests 
+
 ```sh
 ./bin/setup.sh tests
+```
+
+You can also run the parser directly with a config file:
+```sh
+./build/Release/bin/RunEngine examples/simple-example.json
 ```

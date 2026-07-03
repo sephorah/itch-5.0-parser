@@ -1,0 +1,3 @@
+add_executable(RunEngine RunEngine.cpp)
+target_link_libraries(RunEngine PRIVATE ITCHMarketDataEngineCore)
+target_compile_features(RunEngine PRIVATE cxx_std_20)

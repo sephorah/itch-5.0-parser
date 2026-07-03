@@ -23,7 +23,7 @@ tests() {
     echo -e "--------- Parser tests ---------"
     ./build/Release/bin/ParserTests
     echo -e "\n--------- Engine tests ---------"
-    ./build/Release/bin/EngineTests examples/simple-example.json
+    ./build/Release/bin/RunEngine examples/simple-example.json
 }
 
 case "$1" in
