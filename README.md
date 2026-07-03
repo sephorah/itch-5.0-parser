@@ -4,10 +4,10 @@ A C++20 library that reads NASDAQ TotalView-ITCH 5.0 binary files, splits the st
 
 ## Parser
 
-- Reads a binary ITCH 5.0 file sequentially in fixed-size chunks, carrying partial messages across chunk boundaries.
-- Handles endianness (big-endian wire format to host byte order).
-- Decodes each message by treating the raw bytes as a struct instead of decoding them field by field, then byte-swaps the fields.
-- Dispatches each decoded message to a handler functor. The included `Printer` handler prints every message; the parser is generic over the handler, so other consumers can be plugged in.
+- Reads a binary ITCH 5.0 file in fixed-size chunks. A chunk rarely ends exactly on a message boundary, so the leftover bytes of the last, incomplete message are kept and joined with the start of the next chunk before parsing.
+- Handles endianness: ITCH files store numbers most-significant-byte-first, so each field's bytes are reversed to match how the host machine reads them.
+- Decodes each message by treating the raw bytes as a struct instead of decoding them field by field.
+- Dispatches each decoded message to a handler. The included `Printer` handler prints every message; the parser is generic over the handler, so other consumers can be plugged in.
 
 ### Supported ITCH 5.0 messages
 
